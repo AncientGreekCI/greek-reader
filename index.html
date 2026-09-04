@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Greek EPUB Reader</title>
+
+  <!-- Epub.js & JSZip -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
+
+  <!-- Alpheios Stylesheet -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/alpheios-components@latest/dist/style/style-components.min.css"/>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      background: #fdfdfd;
+    }
+    #toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #eee;
+      border-bottom: 1px solid #ccc;
+      z-index: 10;
+    }
+    #viewer {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+    .nav-btn {
+      padding: 6px 14px;
+      font-size: 16px;
+      border: 1px solid #bbb;
+      background: white;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="toolbar">
+    <input type="file" id="file-picker" accept=".epub" />
+    <div>
+      <button class="nav-btn" id="prev">‹</button>
+      <button class="nav-btn" id="next">›</button>
+    </div>
+  </div>
+
+  <div id="viewer"></div>
+
+  <script type="text/javascript">
+    let book, rendition, alpheiosInstance;
+
+    // 1. Initialize Alpheios Embedded Library
+    document.addEventListener("DOMContentLoaded", () => {
+      import("https://cdn.jsdelivr.net/npm/alpheios-embedded@latest/dist/alpheios-embedded.min.js")
+        .then(() => window.AlpheiosEmbed.importDependencies({ mode: 'cdn' }))
+        .then(Embedded => {
+          alpheiosInstance = new Embedded({
+            clientId: 'mobile-greek-epub-reader',
+            defaultLanguage: 'grc'
+          });
+          alpheiosInstance.activate();
+        })
+        .catch(err => console.error("Alpheios init failed:", err));
+    });
+
+    // 2. Handle File Loading
+    document.getElementById("file-picker").addEventListener("change", function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        if (book) book.destroy();
+
+        book = ePub(event.target.result);
+        rendition = book.renderTo("viewer", {
+          width: "100%",
+          height: "100%",
+          spread: "none",
+          flow: "paginated"
+        });
+
+        // 3. Attach Alpheios to Each Rendered Chapter/Iframe
+        rendition.hooks.content.register(contents => {
+          const doc = contents.document;
+          const body = doc.body;
+
+          // Ensure Ancient Greek tagging and Alpheios triggers are set
+          body.classList.add("alpheios-enabled");
+          body.setAttribute("lang", "grc");
+
+          // Bind Alpheios event observers inside the chapter iframe
+          if (alpheiosInstance && alpheiosInstance.addContentElement) {
+            alpheiosInstance.addContentElement(body);
+          }
+        });
+
+        rendition.display();
+      };
+      reader.readAsArrayBuffer(file);
+    });
+
+    // Pagination controls
+    document.getElementById("next").addEventListener("click", () => rendition && rendition.next());
+    document.getElementById("prev").addEventListener("click", () => rendition && rendition.prev());
+  </script>
+</body>
+</html>
