@@ -67,39 +67,133 @@
       import("https://cdn.jsdelivr.net/npm/alpheios-embedded@latest/dist/alpheios-embedded.min.js")
         .then(() => window.AlpheiosEmbed.importDependencies({ mode: 'cdn' }))
         .then(Embedded => {
-          alpheiosInstance = new Embedded({
-            clientId: 'mobile-greek-epub-reader',
-            defaultLanguage: 'grc'
-          });
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Greek EPUB Reader</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/alpheios-components@latest/dist/style/style-components.min.css"/>
+  <style>
+    body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; background: #fdfdfd; }
+    #toolbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #eee; border-bottom: 1px solid #ccc; z-index: 10; }
+    #viewer { flex: 1; width: 100%; height: 100%; overflow: hidden; touch-action: pan-y; }
+    .nav-btn { padding: 6px 14px; font-size: 16px; border: 1px solid #bbb; background: white; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <input type="file" id="file-picker" accept=".epub" />
+    <div>
+      <button class="nav-btn" id="prev">‹</button>
+      <button class="nav-btn" id="next">›</button>
+    </div>
+  </div>
+  <div id="viewer"></div>
+  <script type="text/javascript">
+    let book, rendition, alpheiosInstance;
+
+    document.addEventListener("DOMContentLoaded", () => {
+      import("https://cdn.jsdelivr.net/npm/alpheios-embedded@latest/dist/alpheios-embedded.min.js")
+        .then(() => window.AlpheiosEmbed.importDependencies({ mode: 'cdn' }))
+        .then(Embedded => {
+          alpheiosInstance = new Embedded({ clientId: 'mobile-greek-epub-reader', defaultLanguage: 'grc' });
           alpheiosInstance.activate();
         })
         .catch(err => console.error("Alpheios init failed:", err));
     });
 
-    // 2. Handle File Loading
+    // --- Swipe-to-turn-page tuning ---
+    // A movement has to clear these thresholds to count as a swipe.
+    // Anything smaller/slower is left alone as a plain tap, so Alpheios
+    // still gets its click for word lookup.
+    const SWIPE_MIN_DISTANCE = 50;   // px of horizontal travel required
+    const SWIPE_MAX_VERTICAL = 75;   // px of vertical drift still allowed
+    const SWIPE_MAX_TIME = 600;      // ms — slower drags are ignored
+    const SWIPE_INTENT_DISTANCE = 10; // px of horizontal travel before we even consider it a swipe-in-progress
+
+    function attachSwipeNavigation(doc) {
+      let startX = 0, startY = 0, startTime = 0;
+      let swiping = false;
+
+      doc.addEventListener("touchstart", e => {
+        const t = e.changedTouches[0];
+        startX = t.screenX;
+        startY = t.screenY;
+        startTime = Date.now();
+        swiping = false;
+      }, { passive: true });
+
+      doc.addEventListener("touchmove", e => {
+        const t = e.changedTouches[0];
+        const dx = t.screenX - startX;
+        const dy = t.screenY - startY;
+        if (Math.abs(dx) > SWIPE_INTENT_DISTANCE && Math.abs(dx) > Math.abs(dy)) {
+          swiping = true;
+        }
+      }, { passive: true });
+
+      // touchend must be non-passive: preventDefault here is what stops
+      // the browser firing a synthetic "click" that Alpheios would
+      // otherwise treat as a word-lookup tap.
+      doc.addEventListener("touchend", e => {
+        const t = e.changedTouches[0];
+        const dx = t.screenX - startX;
+        const dy = t.screenY - startY;
+        const dt = Date.now() - startTime;
+
+        const isSwipe = swiping
+          && dt <= SWIPE_MAX_TIME
+          && Math.abs(dx) >= SWIPE_MIN_DISTANCE
+          && Math.abs(dy) <= SWIPE_MAX_VERTICAL;
+
+        if (isSwipe) {
+          e.preventDefault();
+          if (dx < 0) {
+            rendition.next();
+          } else {
+            rendition.prev();
+          }
+        }
+        // Otherwise this was a tap (or a scroll) — let the click through
+        // to Alpheios untouched.
+      }, { passive: false });
+    }
+
     document.getElementById("file-picker").addEventListener("change", function(e) {
       const file = e.target.files[0];
       if (!file) return;
-
       const reader = new FileReader();
       reader.onload = function(event) {
         if (book) book.destroy();
-
         book = ePub(event.target.result);
-        rendition = book.renderTo("viewer", {
-          width: "100%",
-          height: "100%",
-          spread: "none",
-          flow: "paginated"
-        });
+        rendition = book.renderTo("viewer", { width: "100%", height: "100%", spread: "none", flow: "paginated" });
 
-        // 3. Attach Alpheios to Each Rendered Chapter/Iframe
         rendition.hooks.content.register(contents => {
           const doc = contents.document;
           const body = doc.body;
-
-          // Ensure Ancient Greek tagging and Alpheios triggers are set
           body.classList.add("alpheios-enabled");
+          body.setAttribute("lang", "grc");
+          if (alpheiosInstance && alpheiosInstance.addContentElement) {
+            alpheiosInstance.addContentElement(body);
+          }
+          attachSwipeNavigation(doc);
+        });
+
+        rendition.display();
+      };
+      reader.readAsArrayBuffer(file);
+    });
+
+    document.getElementById("next").addEventListener("click", () => rendition && rendition.next());
+    document.getElementById("prev").addEventListener("click", () => rendition && rendition.prev());
+  </script>
+</body>
+</html>
+
+;
           body.setAttribute("lang", "grc");
 
           // Bind Alpheios event observers inside the chapter iframe
